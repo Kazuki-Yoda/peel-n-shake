@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Image Sequence Editor",
+  "description": "An interactive web application that accepts a folder of photos and applies a sequence of user-defined edits to each image using the Gemini 2.5 Flash Image model, displaying a before-and-after comparison.",
+  "requestFramePermissions": []
+}
