@@ -152,7 +152,7 @@ const App: React.FC = () => {
           <div className="flex items-center justify-center gap-4 mb-4">
             <LogoIcon />
             <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-500 to-cyan-500 text-transparent bg-clip-text">
-              Gemini Image Sequencer
+              Peel-n-Edit
             </h1>
           </div>
           <p className="text-lg md:text-xl text-slate-500 max-w-2xl mx-auto">
