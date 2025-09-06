@@ -34,7 +34,7 @@ class FalClient {
   private baseUrl = 'https://queue.fal.run';
 
   constructor() {
-    this.apiKey = process.env.FAL_KEY || '';
+    this.apiKey = 'c28b1cf7-dd2d-4285-85da-ae8f3cdf6d4f:7723636c274b266db0b227b4ad88b0cc' || '';
     if (!this.apiKey) {
       throw new Error('FAL_KEY environment variable is required');
     }

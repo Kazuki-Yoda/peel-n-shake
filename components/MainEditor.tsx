@@ -9,7 +9,7 @@ interface MainEditorProps {
   suggestions: EditSuggestionCategories | null;
   isLoading: boolean;
   error: string | null;
-  files: File[];
+  file: File;
   onProcess: (prompts: string[]) => void;
 }
 
@@ -33,19 +33,19 @@ const SkeletonLoader: React.FC = () => (
 );
 
 
-const MainEditor: React.FC<MainEditorProps> = ({ suggestions, isLoading, error, files, onProcess }) => {
+const MainEditor: React.FC<MainEditorProps> = ({ suggestions, isLoading, error, file, onProcess }) => {
   const [prompts, setPrompts] = useState<string[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [hoveredImage, setHoveredImage] = useState<{ src: string; top: number; left: number } | null>(null);
 
 
   useEffect(() => {
-    if (files.length > 0) {
-      const url = URL.createObjectURL(files[0]);
+    if (file) {
+      const url = URL.createObjectURL(file);
       setPreviewUrl(url);
       return () => URL.revokeObjectURL(url);
     }
-  }, [files]);
+  }, [file]);
 
   const handleAddSuggestion = (suggestion: string) => {
     setPrompts(prev => [...prev, suggestion]);
@@ -164,7 +164,7 @@ const MainEditor: React.FC<MainEditorProps> = ({ suggestions, isLoading, error, 
                 <div className="bg-slate-100 p-2 rounded-lg">
                     <img
                         src={previewUrl}
-                        alt="Preview of the first selected image"
+                        alt="Preview of the selected image"
                         className="w-full h-auto object-contain rounded-md max-h-[250px]"
                     />
                 </div>
@@ -180,7 +180,7 @@ const MainEditor: React.FC<MainEditorProps> = ({ suggestions, isLoading, error, 
                     className="w-full inline-flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 disabled:scale-100 shadow-lg shadow-indigo-600/20 text-base"
                 >
                     <SparklesIcon />
-                    Apply Edits to {files.length} {files.length === 1 ? 'Image' : 'Images'}
+                    Apply Edits to Image
                 </button>
             </div>
         </div>

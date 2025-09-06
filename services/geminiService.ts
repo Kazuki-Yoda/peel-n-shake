@@ -214,20 +214,19 @@ export const getEditSuggestions = async (
     // First update: send the text-only suggestions
     onUpdate(JSON.parse(JSON.stringify(currentSuggestions)));
 
-    const previewPromises = categories.flatMap(category =>
-        parsedPrompts[category].map((prompt, index) =>
-            applySingleEdit(originalImageData, mimeType, prompt)
-                .then(previewImage => {
-                    currentSuggestions[category][index].previewImage = previewImage;
-                    onUpdate(JSON.parse(JSON.stringify(currentSuggestions)));
-                })
-                .catch(err => {
-                    console.warn(`Could not generate preview for prompt "${prompt}":`, err);
-                    currentSuggestions[category][index].previewImage = 'error';
-                    onUpdate(JSON.parse(JSON.stringify(currentSuggestions)));
-                })
-        )
-    );
-
-    await Promise.all(previewPromises);
+    // Generate previews sequentially to avoid hitting API rate limits.
+    for (const category of categories) {
+        for (let i = 0; i < currentSuggestions[category].length; i++) {
+            const item = currentSuggestions[category][i];
+            try {
+                const previewImage = await applySingleEdit(originalImageData, mimeType, item.prompt);
+                item.previewImage = previewImage;
+            } catch (err) {
+                console.warn(`Could not generate preview for prompt "${item.prompt}":`, err);
+                item.previewImage = 'error';
+            }
+            // Update the UI after each preview is generated or fails
+            onUpdate(JSON.parse(JSON.stringify(currentSuggestions)));
+        }
+    }
 };

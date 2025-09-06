@@ -1,9 +1,9 @@
-
 import React, { useState, useCallback } from 'react';
 import ImageResultCard from './components/ImageResultCard';
 import { applyEditSequence, getEditSuggestions } from './services/geminiService';
+import { requestFalImageEdit } from './services/falRequest';
 import type { ProcessedImage, EditSuggestionCategories } from './types';
-import { LogoIcon, ResetIcon } from './components/Icons';
+import { LogoIcon } from './components/Icons';
 import WelcomeScreen from './components/WelcomeScreen';
 import MainEditor from './components/MainEditor';
 
@@ -11,32 +11,39 @@ type AppState = 'upload' | 'edit' | 'process' | 'results';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('upload');
-  const [originalFiles, setOriginalFiles] = useState<File[]>([]);
-  const [processedImages, setProcessedImages] = useState<ProcessedImage[]>([]);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
+  const [processedImage, setProcessedImage] = useState<ProcessedImage | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // State for Fal.ai processing
+  const [falProcessedImageUrl, setFalProcessedImageUrl] = useState<string | null>(null);
+  const [isProcessingFal, setIsProcessingFal] = useState(false);
+  const [falError, setFalError] = useState<string | null>(null);
 
   const [editSuggestions, setEditSuggestions] = useState<EditSuggestionCategories | null>(null);
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
 
-  const handleFilesSelected = useCallback(async (files: File[]) => {
-    setOriginalFiles(files);
-    setProcessedImages([]);
+  const handleFileSelected = useCallback(async (file: File) => {
+    setOriginalFile(file);
+    setProcessedImage(null);
     setError(null);
     setEditSuggestions(null);
     setSuggestionError(null);
+    setFalProcessedImageUrl(null);
+    setFalError(null);
     setAppState('edit');
     
-    if (files.length > 0) {
+    if (file) {
       setIsSuggesting(true);
       try {
         // The callback will be fired multiple times: once with text, then for each preview.
         const handleSuggestionUpdate = (updatedSuggestions: EditSuggestionCategories) => {
           setEditSuggestions(updatedSuggestions);
         };
-        await getEditSuggestions(files[0], handleSuggestionUpdate);
+        await getEditSuggestions(file, handleSuggestionUpdate);
       } catch (err) {
         console.error("Failed to get suggestions:", err);
         setSuggestionError("Could not generate suggestions for the image.");
@@ -46,77 +53,83 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleProcessImages = useCallback(async (finalPrompts: string[]) => {
-    if (originalFiles.length === 0 || finalPrompts.length === 0) {
-      setError("Please select at least one image and add at least one edit prompt.");
+  const handleProcessImage = useCallback(async (finalPrompts: string[]) => {
+    if (!originalFile || finalPrompts.length === 0) {
+      setError("Please select an image and add at least one edit prompt.");
       return;
     }
 
     setAppState('process');
     setIsLoading(true);
+    setIsProcessingFal(true);
     setError(null);
-    setProcessedImages([]);
+    setFalError(null);
+    setProcessedImage(null);
+    setFalProcessedImageUrl(null);
 
-    const results: ProcessedImage[] = [];
+    try {
+      const originalImageBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (error) => reject(error);
+          reader.readAsDataURL(originalFile);
+      });
 
-    for (let i = 0; i < originalFiles.length; i++) {
-      const file = originalFiles[i];
-      try {
-        setProcessingStatus(`Processing ${file.name} (image ${i + 1} of ${originalFiles.length})...`);
-        const finalImageBase64 = await applyEditSequence(file, finalPrompts, (promptIndex) => {
-           setProcessingStatus(`Editing ${file.name} with prompt ${promptIndex + 1}: "${finalPrompts[promptIndex]}"`);
-        });
+      // --- Start Fal.ai process (non-blocking) ---
+      const falPrompt = finalPrompts.join('. ');
+      requestFalImageEdit('fal-ai/flux-pro/kontext/max', falPrompt, originalImageBase64)
+          .then(url => {
+              if (url) {
+                  setFalProcessedImageUrl(url);
+              } else {
+                  throw new Error("Fal.ai returned an empty URL.");
+              }
+          })
+          .catch(e => {
+              console.error('Fal.ai processing failed:', e);
+              setFalError('An error occurred generating the alternative edit.');
+          })
+          .finally(() => {
+              setIsProcessingFal(false);
+          });
+      
+      // --- Start Gemini process (blocking for UI transition) ---
+      setProcessingStatus(`Processing ${originalFile.name} with Gemini...`);
+      const finalImageBase64 = await applyEditSequence(originalFile, finalPrompts, (promptIndex) => {
+         setProcessingStatus(`Editing ${originalFile.name} with prompt ${promptIndex + 1}: "${finalPrompts[promptIndex]}"`);
+      });
+      
+      setProcessedImage({
+        id: originalFile.name + Date.now(),
+        original: originalImageBase64,
+        final: finalImageBase64,
+        name: originalFile.name,
+      });
 
-        const originalImageBase64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = (error) => reject(error);
-            reader.readAsDataURL(file);
-        });
-        
-        results.push({
-          id: file.name + Date.now(),
-          original: originalImageBase64,
-          final: finalImageBase64,
-          name: file.name,
-        });
-
-        setProcessedImages([...results]);
-
-      } catch (e) {
-        console.error(`Failed to process ${file.name}:`, e);
-        setError(`An error occurred while processing ${file.name}. Please check the console for details.`);
-        break;
-      }
+    } catch (e) {
+      console.error(`Failed to process ${originalFile.name}:`, e);
+      setError(`An error occurred while processing ${originalFile.name}. Please check the console for details.`);
     }
+    
+    // Transition UI after Gemini is done. Fal will update its section when it finishes.
     setAppState('results');
     setIsLoading(false);
     setProcessingStatus(null);
-  }, [originalFiles]);
-
-  const handleStartOver = () => {
-    setAppState('upload');
-    setOriginalFiles([]);
-    setProcessedImages([]);
-    setError(null);
-    setEditSuggestions(null);
-    setSuggestionError(null);
-    setIsLoading(false);
-    setProcessingStatus(null);
-  };
+  }, [originalFile]);
   
   const renderContent = () => {
     switch (appState) {
       case 'upload':
-        return <WelcomeScreen onFilesSelected={handleFilesSelected} />;
+        return <WelcomeScreen onFileSelected={handleFileSelected} />;
       case 'edit':
+        if (!originalFile) return null;
         return (
           <MainEditor
             suggestions={editSuggestions}
             isLoading={isSuggesting}
             error={suggestionError}
-            files={originalFiles}
-            onProcess={handleProcessImages}
+            file={originalFile}
+            onProcess={handleProcessImage}
           />
         );
       case 'process':
@@ -128,16 +141,21 @@ const App: React.FC = () => {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               <p className="text-xl font-semibold text-slate-700">{processingStatus || "Initializing..."}</p>
-               <p className="text-slate-500 mt-2">This may take a few moments per image. Please wait.</p>
+               <p className="text-slate-500 mt-2">This may take a few moments. Please wait.</p>
             </div>
           </div>
         );
       case 'results':
         return (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            {processedImages.map((image) => (
-              <ImageResultCard key={image.id} image={image} />
-            ))}
+          <div className="max-w-4xl mx-auto">
+            {processedImage && (
+              <ImageResultCard
+                image={processedImage}
+                falImage={falProcessedImageUrl}
+                isProcessingFal={isProcessingFal}
+                falError={falError}
+              />
+            )}
           </div>
         );
       default:
@@ -155,22 +173,7 @@ const App: React.FC = () => {
               Peel-n-Edit
             </h1>
           </div>
-          <p className="text-lg md:text-xl text-slate-500 max-w-2xl mx-auto">
-            Upload your photos, pick AI suggestions, refine your edits, and transform them all in one go.
-          </p>
         </header>
-
-        {appState !== 'upload' && appState !== 'process' &&(
-          <div className="flex justify-end mb-6">
-            <button
-              onClick={handleStartOver}
-              className="flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-indigo-600 bg-white hover:bg-indigo-50 border border-slate-200 rounded-lg px-4 py-2 transition-colors duration-200"
-            >
-              <ResetIcon className="w-4 h-4" />
-              Start Over
-            </button>
-          </div>
-        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6" role="alert">
